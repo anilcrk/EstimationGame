@@ -10,7 +10,8 @@ namespace EstimationGame.Helpers
             return new Group
             {
                 GroupName = groupName,
-                GameStatus = false
+                GameStatus = false,
+                ResultStatus = false
             };
         }
 
@@ -27,6 +28,18 @@ namespace EstimationGame.Helpers
         public static Option GetOption(Group group, string optionName)
         {
             return group.OptionValues.FirstOrDefault(x => x.Name == optionName);
+        }
+
+        public static void RemoveGroupUser(User user)
+        {
+            Group group = GetGroup(user.GroupName);
+            group.Users.Remove(user);
+        }
+
+        public static void RemoveGroup(string groupName)
+        {
+            Group group = GetGroup(groupName);
+            GroupSource.Groups.Remove(group);
         }
     }
 }

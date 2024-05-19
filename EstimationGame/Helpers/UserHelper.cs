@@ -17,15 +17,13 @@ namespace EstimationGame.Helpers
 
         public static User AddUser(string fullName, string connectionId, string groupName)
         {
-            User user = new User
+            return new User
             {
                 ConnectionId = connectionId,
                 FullName = fullName,
                 Moderator = false,
                 GroupName = groupName
             };
-
-            return user;
         }
     }
 }

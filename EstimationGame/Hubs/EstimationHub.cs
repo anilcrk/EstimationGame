@@ -1,20 +1,20 @@
 ﻿using EstimationGame.Data;
 using EstimationGame.Helpers;
 using EstimationGame.Models;
+using EstimationGame.Result;
 using Microsoft.AspNetCore.SignalR;
-using System.Text.Json;
 
 namespace EstimationGame.Hubs
 {
     public class EstimationHub : Hub
     {
-        public async Task<GroupCreationResult> CreateGroup(string fullName)
+        public async Task<ServiceResultExt<GroupCreationResult>> CreateGroup(string fullName)
         {
             string groupName = Guid.NewGuid().ToString();
 
             await Groups.AddToGroupAsync(Context.ConnectionId, groupName);
 
-            User user = UserHelper.CreateUser(fullName, Context.ConnectionId,groupName);
+            User user = UserHelper.CreateUser(fullName, Context.ConnectionId, groupName);
 
             Group group = GroupHelper.CreateGroup(groupName);
 
@@ -22,18 +22,36 @@ namespace EstimationGame.Hubs
 
             GroupSource.Groups.Add(group);
 
-            return new GroupCreationResult 
+            return new ServiceResultExt<GroupCreationResult>
             {
-                GroupUrl = groupName, 
-                User = user, 
-                Group = group 
+                Status = true,
+                Explanation = "Group Successfully Created",
+                ResultObject = new GroupCreationResult
+                {
+                    GroupUrl = groupName,
+                    User = user,
+                    Group = group
+                }
             };
         }
 
-        public async Task<GroupJoinResult> AddUserToGroup(string fullName, string groupName)
+        public async Task<ServiceResultExt<GroupJoinResult>> AddUserToGroup(string fullName, string groupName)
         {
             Group group = GroupHelper.GetGroup(groupName);
-            if (group != null)
+            if (group is null)
+            {
+                return new ServiceResultExt<GroupJoinResult>
+                {
+                    Status = false,
+                    Explanation = "Group Not Available. You are redirected to the main page.",
+                    ResultObject = new GroupJoinResult
+                    {
+                        User = null,
+                        Group = null
+                    }
+                };             
+            }
+            else
             {
                 User user = UserHelper.AddUser(fullName, Context.ConnectionId, groupName);
 
@@ -41,73 +59,126 @@ namespace EstimationGame.Hubs
 
                 await Groups.AddToGroupAsync(Context.ConnectionId, groupName);
 
-                return new GroupJoinResult 
-                { 
-                    User = user, 
-                    Group = group 
+                await Clients.Group(groupName).SendAsync("Information", $"{user.FullName} Joined The Group.");
+
+                return new ServiceResultExt<GroupJoinResult>
+                {
+                    Status = true,
+                    Explanation = $"{user.FullName} Joined The Group.",
+                    ResultObject = new GroupJoinResult
+                    {
+                        User = user,
+                        Group = group
+                    }
                 };
             }
-            return null;
         }
 
         public async Task GetUserToGroup(string groupName)
         {
             Group group = GroupHelper.GetGroup(groupName);
-            await Clients.Group(groupName).SendAsync("Users", group.Users);
+            if (group != null)
+            {
+                await Clients.Group(groupName).SendAsync("Users", group.Users);
+            }
         }
 
         public async Task ProcessSelectedOption(string groupName, string optionValue)
         {
             Group group = GroupHelper.GetGroup(groupName);
-            if (group == null) return;
 
-            User user = GroupHelper.GetGroupUser(group, Context.ConnectionId);
-            if (user == null) return;
-
-            if (user.Option == null)
+            if (group != null)
             {
-                user.Option = UpdateOrAddOption(group, optionValue);
-            }
-            else
-            {
-                SwitchUserOption(group, user, optionValue);
-            }
+                User user = GroupHelper.GetGroupUser(group, Context.ConnectionId);
 
-            user.Status = true;
-            await Clients.Client(user.ConnectionId).SendAsync("UpdateUser", user);
-            await Clients.Group(groupName).SendAsync("Users", group.Users);
+                if (user.Option == null)
+                {
+                    user.Option = UpdateOrAddOption(group, optionValue);
+                }
+                else
+                {
+                    SwitchUserOption(group, user, optionValue);
+                }
+
+                user.Status = true;
+                await Clients.Client(user.ConnectionId).SendAsync("UpdateUser", user);
+                await Clients.Group(groupName).SendAsync("Users", group.Users);
+            }
         }
 
         public async Task ProcessResult(string groupName)
         {
             Group group = GroupHelper.GetGroup(groupName);
-            User user = GroupHelper.GetGroupUser(group, Context.ConnectionId);
 
-            if (user != null)
+            if (group != null)
             {
-                string values = JsonSerializer.Serialize(group.OptionValues);
-                await Clients.Group(groupName).SendAsync("Result", values);
+                group.ResultStatus = true;
+                await Clients.Group(groupName).SendAsync("UpdateGroup", group);
             }
         }
 
         public async Task StartGame(string groupName)
         {
             Group group = GroupHelper.GetGroup(groupName);
-            group.GameStatus = true;
-            await Clients.Group(groupName).SendAsync("UpdateGroup", group);
+            if (group != null)
+            {
+                group.GameStatus = true;
+                await Clients.Group(groupName).SendAsync("UpdateGroup", group);
+            }
         }
 
         public async Task UpdateConnectionId(string groupName, string connectionId)
         {
-            if (string.IsNullOrEmpty(groupName))
+            if (!string.IsNullOrEmpty(groupName))
             {
                 Group group = GroupHelper.GetGroup(groupName);
-                User user = GroupHelper.GetGroupUser(group, Context.ConnectionId);
-                user.ConnectionId = Context.ConnectionId;
-                await Groups.RemoveFromGroupAsync(connectionId, groupName);
-                await Groups.AddToGroupAsync(Context.ConnectionId, groupName);
-                await Clients.Client(user.ConnectionId).SendAsync("UpdateConnectionId", user);
+                if (group != null)
+                {
+                    User user = GroupHelper.GetGroupUser(group, connectionId);
+                    if (user != null)
+                    {
+                        user.ConnectionId = Context.ConnectionId;
+                        await Groups.RemoveFromGroupAsync(connectionId, groupName);
+                        await Groups.AddToGroupAsync(Context.ConnectionId, groupName);
+                        await Clients.Client(user.ConnectionId).SendAsync("UpdateConnectionId", user);
+                    }
+                }  
             }
+        }
+
+        public async Task ResetGame(string groupName)
+        {
+            if (!string.IsNullOrEmpty(groupName))
+            {
+                Group group = GroupHelper.GetGroup(groupName);
+
+                if(group != null)
+                {
+                    group.Users.ForEach(x => { x.Option = null; x.Status = false; });
+                    await Clients.Group(groupName).SendAsync("Users", group.Users);
+                    group.ResultStatus = false;
+                    group.OptionValues.Clear();
+                    await Clients.Group(groupName).SendAsync("UpdateGroup", group);
+                }
+            }
+        }
+
+        public async Task Logout(string groupName)
+        {
+            Group group = GroupHelper.GetGroup(groupName);
+            if (group != null)
+            {
+                User user = GroupHelper.GetGroupUser(group, Context.ConnectionId);
+                if (user != null)
+                {
+                    GroupHelper.RemoveGroupUser(user);
+                    await Clients.Group(groupName).SendAsync("Users", group.Users);
+                }
+                if (group.Users.Count < 1)
+                {
+                    GroupHelper.RemoveGroup(groupName);
+                }
+            }  
         }
 
         private Option UpdateOrAddOption(Group group, string optionName)
@@ -137,35 +208,5 @@ namespace EstimationGame.Hubs
 
             user.Option = UpdateOrAddOption(group, optionValue);
         }
-
-        //public override async Task OnDisconnectedAsync(Exception exception)
-        //{
-        //    RemoveUser(Context.ConnectionId);
-        //    await base.OnDisconnectedAsync(exception);
-        //}
-
-        //private async void RemoveUser(string connectionId)
-        //{
-        //    User userToRemove = UserSource.Users.FirstOrDefault(u => u.ConnectionId == connectionId);
-        //    if (userToRemove != null)
-        //    {
-        //        UserSource.Users.Remove(userToRemove);
-        //        await RemoveGroup(userToRemove); 
-        //    }
-        //}
-
-        //private async Task RemoveGroup(User user)
-        //{
-        //    if (user != null)
-        //    {
-        //        Group group = GroupSource.Groups.FirstOrDefault(x => x.GroupName == user.GroupName);
-        //        group.Users.Remove(user);
-        //        if (group.Users.Count == 0)
-        //        {
-        //            GroupSource.Groups.Remove(group);
-        //        }
-        //        await Clients.Group(user.GroupName).SendAsync("Users", group.Users);
-        //    }
-        //}
     }
 }
