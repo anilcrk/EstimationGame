@@ -113,6 +113,7 @@ namespace EstimationGame.Hubs
             if (group != null)
             {
                 group.ResultStatus = true;
+                await Clients.Group(groupName).SendAsync("Users", group.Users);
                 await Clients.Group(groupName).SendAsync("UpdateGroup", group);
             }
         }
