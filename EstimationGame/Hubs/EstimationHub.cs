@@ -8,6 +8,7 @@ namespace EstimationGame.Hubs
 {
     public class EstimationHub : Hub
     {
+        // Handles the creation of a group and adding a user to the group
         public async Task<ServiceResultExt<GroupCreationResult>> CreateGroup(string fullName)
         {
             string groupName = Guid.NewGuid().ToString();
@@ -35,6 +36,7 @@ namespace EstimationGame.Hubs
             };
         }
 
+        // Adds a user to the specified group
         public async Task<ServiceResultExt<GroupJoinResult>> AddUserToGroup(string fullName, string groupName)
         {
             Group group = GroupHelper.GetGroup(groupName);
@@ -74,6 +76,7 @@ namespace EstimationGame.Hubs
             }
         }
 
+        // Sends the users in the group to the clients
         public async Task GetUserToGroup(string groupName)
         {
             Group group = GroupHelper.GetGroup(groupName);
@@ -83,6 +86,7 @@ namespace EstimationGame.Hubs
             }
         }
 
+        // Processes the selected option for the user
         public async Task ProcessSelectedOption(string groupName, string optionValue)
         {
             Group group = GroupHelper.GetGroup(groupName);
@@ -106,6 +110,7 @@ namespace EstimationGame.Hubs
             }
         }
 
+        // Processes the result for the group and sends it to the clients
         public async Task ProcessResult(string groupName)
         {
             Group group = GroupHelper.GetGroup(groupName);
@@ -118,6 +123,7 @@ namespace EstimationGame.Hubs
             }
         }
 
+        // Starts the game and notifies the group
         public async Task StartGame(string groupName)
         {
             Group group = GroupHelper.GetGroup(groupName);
@@ -128,6 +134,7 @@ namespace EstimationGame.Hubs
             }
         }
 
+        // Updates the connection ID for the user
         public async Task UpdateConnectionId(string groupName, string connectionId)
         {
             if (!string.IsNullOrEmpty(groupName))
@@ -147,6 +154,7 @@ namespace EstimationGame.Hubs
             }
         }
 
+        // Resets the game and notifies the group
         public async Task ResetGame(string groupName)
         {
             if (!string.IsNullOrEmpty(groupName))
@@ -164,6 +172,7 @@ namespace EstimationGame.Hubs
             }
         }
 
+        // Handles the user logging out of the group and updates the group
         public async Task Logout(string groupName)
         {
             Group group = GroupHelper.GetGroup(groupName);
@@ -172,8 +181,16 @@ namespace EstimationGame.Hubs
                 User user = GroupHelper.GetGroupUser(group, Context.ConnectionId);
                 if (user != null)
                 {
+                    if (user.Moderator && group.Users.Count > 1)
+                    {
+                        User newModerator = group.Users.FirstOrDefault(x => x.ConnectionId != user.ConnectionId);
+                        newModerator.Moderator = true;
+                        await Clients.Client(newModerator.ConnectionId).SendAsync("UpdateUser", user);
+                    }
                     GroupHelper.RemoveGroupUser(user);
+                    await Clients.Group(groupName).SendAsync("Information", $"{user.FullName} Left the Group");
                     await Clients.Group(groupName).SendAsync("Users", group.Users);
+                    await Clients.Group(groupName).SendAsync("UpdateGroup", group);
                 }
                 if (group.Users.Count < 1)
                 {
@@ -182,6 +199,7 @@ namespace EstimationGame.Hubs
             }  
         }
 
+        // Updates or adds an option for the group
         private Option UpdateOrAddOption(Group group, string optionName)
         {
             Option option = GroupHelper.GetOption(group, optionName);
@@ -202,6 +220,7 @@ namespace EstimationGame.Hubs
             }
         }
 
+        // Switches the user's selected option
         private void SwitchUserOption(Group group, User user, string optionValue)
         {
             user.Option.Value--;
